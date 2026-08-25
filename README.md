@@ -1,6 +1,6 @@
 # WorldScope Agent
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Ko-Fi](https://img.shields.io/badge/Ko--fi-Support%20me-72a4f2?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/N8Y025JF6H)
 
 Java agent that bytecode-instruments Paper's command pipeline so that command-block and
 console commands can't reach into worlds they didn't originate from.
@@ -144,5 +144,3 @@ property stops being necessary; if your JDK gets newer than *that* ceiling, bump
 
 Found a bug, hit an unsupported server version, or have a feature request? Open one on the
 [issue tracker](https://github.com/Perdume/worldscope-agent/issues). Include your Paper
-version, Java version, and the `[WorldScope]` lines from your server log - see the
-`-Dworldscope.verbose=true` flag above for a more detailed log if needed.
