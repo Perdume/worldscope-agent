@@ -4,3 +4,6 @@ target/
 *.iml
 .vscode/
 dependency-reduced-pom.xml
+
+# Modrinth project page copy - kept locally only, not part of the source repo
+MODRINTH.md
