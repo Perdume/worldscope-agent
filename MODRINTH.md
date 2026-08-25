@@ -47,3 +47,7 @@ A successful start prints this in your console:
 ## Why isn't this a normal plugin?
 
 Because this behavior lives inside the server's own command-parsing code, several layers below anything a plugin's public API is allowed to see or touch. A Java agent is the only way to intervene at that point without replacing server files by hand.
+
+## Found a bug?
+
+Report it on the [issue tracker](https://github.com/Perdume/worldscope-agent/issues) — include your Paper version, Java version, and the `[WorldScope]` lines from your server log.

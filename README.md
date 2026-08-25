@@ -12,8 +12,8 @@ current dimension when the selector carries a positional argument (`x`, `y`, `z`
 `dy`, `dz`, or `distance`). A bare `@e[type=zombie]` in a command block or typed at the
 console searches **every loaded world on the server**, not just the one the command block
 sits in. This isn't a bug - it's documented vanilla behavior, confirmed against Paper's
-Mojang-mapped source (`EntitySelector#isWorldLimited()`) - but it's exactly the "월드간
-커맨드 개입" this project exists to prevent.
+Mojang-mapped source (`EntitySelector#isWorldLimited()`) - but it's exactly the cross-world
+command interference this project exists to prevent.
 
 ## How it works
 
@@ -139,3 +139,10 @@ Paper 26.2 build running on OpenJDK 26.0.2.1.
 If a future Byte Buddy release moves its official support past your JDK version, this
 property stops being necessary; if your JDK gets newer than *that* ceiling, bump
 `byte-buddy.version` in `pom.xml` to a release that supports it.
+
+## Issues
+
+Found a bug, hit an unsupported server version, or have a feature request? Open one on the
+[issue tracker](https://github.com/Perdume/worldscope-agent/issues). Include your Paper
+version, Java version, and the `[WorldScope]` lines from your server log - see the
+`-Dworldscope.verbose=true` flag above for a more detailed log if needed.

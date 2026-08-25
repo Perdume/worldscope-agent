@@ -25,6 +25,17 @@
         </license>
     </licenses>
 
+    <scm>
+        <url>https://github.com/Perdume/worldscope-agent</url>
+        <connection>scm:git:https://github.com/Perdume/worldscope-agent.git</connection>
+        <developerConnection>scm:git:https://github.com/Perdume/worldscope-agent.git</developerConnection>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub Issues</system>
+        <url>https://github.com/Perdume/worldscope-agent/issues</url>
+    </issueManagement>
+
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
