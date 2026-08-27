@@ -156,5 +156,3 @@ property stops being necessary; if your JDK gets newer than *that* ceiling, bump
 
 Found a bug, hit an unsupported server version, or have a feature request? Open one on the
 [issue tracker](https://github.com/Perdume/worldscope-agent/issues). Include your Paper
-version, Java version, and the `[WorldScope]` lines from your server log - see the
-`-Dworldscope.verbose=true` flag above for a more detailed log if needed.
