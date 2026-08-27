@@ -17,50 +17,44 @@ command interference this project exists to prevent.
 
 ## How it works
 
-Two hooks, installed via [Byte Buddy](https://bytebuddy.net/) `Advice` at class-load time:
+Three hooks, installed via [Byte Buddy](https://bytebuddy.net/) `Advice`:
 
-1. **`net.minecraft.commands.Commands#executeCommandInContext(CommandSourceStack, Consumer)`** -
-   confirmed by decompiling a real Paper 26.2 build to be the single funnel every top-level
-   command/function dispatch passes through: console and command-block commands
-   (`performPrefixedCommand`) and player-typed ones (`performCommand`) both call it, and so
-   does `ServerFunctionManager#execute` for `#minecraft:tick`/`#minecraft:load` auto-run
-   functions and fired `/schedule function` callbacks. On entry, the dispatching source's
-   world is pushed onto a per-thread stack; popped on exit (including on exception, so the
-   stack never leaks). A nested command/function call within an already-running chain (e.g.
-   `execute ... run function foo`) queues directly onto the already-running execution context
-   instead of calling this again, so it fires once per genuinely independent dispatch, not
-   once per command in a chain - and that queue is drained by a plain synchronous loop with no
-   cross-tick suspension, so a long function chain triggered by a command block/console/player
-   command stays fully inside this one push/pop regardless of length.
-2. **`net.minecraft.commands.arguments.selector.EntitySelector#findEntities` /
-   `#findPlayers`** - where a selector actually turns into a list of entities. On exit, any
-   entity not in the world captured in step 1 is dropped from the result, regardless of
-   whether the selector itself was position-limited.
+1. **`Commands#executeCommandInContext`** - the single point every command and function
+   dispatch passes through. Confirmed by decompiling a real Paper 26.2 build:
+   - Console and command-block commands reach it via `performPrefixedCommand`; player-typed
+     commands via `performCommand`; scheduled/tick functions (`#minecraft:tick`,
+     `#minecraft:load`, fired `/schedule` callbacks) via `ServerFunctionManager#execute`.
+   - A nested call within an already-running chain (`execute ... run function foo`) doesn't
+     call this again - it queues onto the chain that's already running. So it fires once per
+     independent dispatch, not once per command in a chain.
+   - That queue drains in a plain synchronous loop with no suspension across ticks, so even a
+     long function chain stays inside one continuous dispatch.
 
-The result is scoped by construction - not by rewriting the command text - so it applies
-uniformly to `execute`, `function`, nested command chains, and any Bukkit command that
-ultimately routes through the vanilla dispatcher.
+   On entry it records which world the dispatch came from; the record is cleared when the
+   command finishes, even if it threw.
+2. **`EntitySelector#findEntities` / `#findPlayers`** - where a selector resolves to actual
+   entities. On exit, anything outside the recorded world is dropped from the result -
+   regardless of whether the selector itself used coordinates.
+3. **`CommandSourceStack#withLevel`** - the single method behind every dimension redirect
+   (`execute in <dimension>`, and `execute at`/`as` copying a target's own dimension). If a
+   redirect would move execution into a world other than the one recorded in step 1, this
+   throws instead of letting the redirect happen, aborting that command chain. Paper's own
+   top-level handlers already catch and report whatever a command throws, so this just
+   surfaces as an ordinary command failure.
 
-**`#minecraft:tick`/`#minecraft:load` functions and `/schedule` are scoped too, to whatever
-world the generic "game loop sender" resolves to.** These aren't tied to a specific
-command-block/console/player origin the way a directly-run command is - vanilla itself
-discards the world a `/schedule` command was issued from before the callback fires, replacing
-it with that same generic sender - so this is a deliberate choice, not a side effect: a
-`#minecraft:tick` function that's meant to affect every player across every world (a common,
-legitimate pattern) will now only affect players in whichever world the generic sender
-resolves to instead.
+Step 2 only ever sees commands shaped around a selector (`kill @a`, `tp @s`, and so on).
+Plenty of commands aren't - `setblock`, `fill`, `clone`, `weather`, `time`, `gamerule` - and
+none of those have anything like "return an empty list" to fall back on if you want to refuse
+them. Step 3 is what actually closes that: it catches a cross-world `execute in` before *any*
+command runs, selector-shaped or not.
 
-**Explicit cross-world reach is refused, not redirected.** If a command has already been
-routed into a different world by the time the selector runs (`execute in <other-world> run
-kill @a`, run by someone whose own world isn't `<other-world>`), step 2 compares the
-selector's *current* world against the *origin* world from step 1 and, if they differ,
-returns nothing at all - it does not fall back to silently re-scoping the selector to the
-origin world instead. A player in the nether running `execute in world run kill @a` kills
-no one, not the nether's own players either.
+Because the checks happen at this level rather than by rewriting command text, they apply
+uniformly everywhere - `execute`, `function`, nested command chains, anything that routes
+through the vanilla dispatcher.
 
-No NMS/Paper type is referenced at compile time: everything in step 1 above is invoked
-through cached reflection (`EntityWorldFilter`), so this module builds without the server
-jar as a dependency. See "Version coverage" below for what that buys you.
+No NMS/Paper type is referenced at compile time - everything above goes through cached
+reflection (`EntityWorldFilter`), so this module builds without the server jar as a
+dependency. See "Version coverage" below for what that buys you.
 
 ### Safety
 
@@ -91,6 +85,57 @@ filtered. Extending `ModernMojmapAdapter` to also hook
 `CraftServer#selectEntities`/`VanillaCommandWrapper#getListener` would close this; not done
 yet to keep the initial surface area small.
 
+## Security considerations
+
+Things that look like they could go wrong here, and what actually happens:
+
+- **A hook silently stops matching (unsupported server build).** This is fail-open by
+  design - no error, no blocked commands, the agent just does nothing. That's the right
+  default so a version mismatch can't break command handling, but it also means the
+  protection can go quiet without telling you. Check for the `patched ...` log lines on
+  startup if you're relying on this rather than just wanting the common case fixed.
+- **A bug in the hook itself breaks command handling server-wide.** Both advice classes wrap
+  their entire body in `catch (Throwable)` and always fall back to vanilla's own unfiltered
+  result. A crash inside this agent's filtering logic can't propagate out and take commands
+  down with it - worst case, that one selector call goes unfiltered.
+- **An exception between push and pop leaks a stale origin into later commands.** Handled by
+  running the pop in `Advice.OnMethodExit(onThrowable = Throwable.class)`, so it runs whether
+  the hooked method returns normally or throws.
+- **Concurrent commands on different threads corrupting the origin stack.** Origin is tracked
+  per-thread (`ThreadLocal`), and Paper's own `AsyncCatcher` already rejects command
+  dispatch off the main thread, so this isn't actually reachable in practice.
+- **A malicious plugin defeating or abusing this.** It isn't a defense against that. This
+  agent stops *accidental* cross-world leakage from vanilla's own selector behavior; a
+  plugin with server-side code already has full JVM access; it can bypass this agent, or for
+  that matter do anything else it wants, with or without WorldScope installed. The bridge
+  classes (`OriginContext`, `EntityWorldFilter`) are on the bootstrap classloader and
+  therefore technically callable from any plugin, but there's nothing there a plugin
+  couldn't already do more directly through reflection on Minecraft's own internals.
+- **The agent jar itself being tampered with.** A `-javaagent` can rewrite arbitrary server
+  behavior, same as any Java agent - only run a build you compiled yourself or downloaded
+  from this project's own releases, and treat it with the same trust level as the server
+  jar.
+
+## What a player can and can't get away with
+
+The section above is about this agent misbehaving. This one is about someone actively trying
+to reach into a world that isn't theirs. Things worth trying, and what actually happens:
+
+| Attempt | Result |
+|---|---|
+| Bare `@e`/`@a` with no coordinates | Confined to their own world - this is the core leak the agent exists to close |
+| `execute in <other-world> run kill @a` | Refused - the redirect itself throws before `kill` ever runs |
+| `execute in <other-world> run setblock`/`fill`/`weather`/`gamerule`/anything else with no selector | Refused the same way - the redirect is what gets caught, not the command that follows it |
+| `execute at`/`as <selector>` reaching into another world | Can't - the selector is already confined to the origin world before `at`/`as` ever sees it, so there's no out-of-world target to redirect to |
+| Targeting an exact player name or UUID instead of `@a`/`@e` (`/tp Steve`, `/data get entity <uuid>`) | Still confined - the single-target resolution methods call the same hooked ones internally, there's no separate path around them |
+| Chaining several `execute in`/`at`/`as` redirects to obscure the jump | Doesn't help - every redirect is checked against the *original* origin, not whatever the level currently is, so the first hop that leaves it already throws |
+| Triggering a `#minecraft:tick`/`#minecraft:load` function, or waiting out a `/schedule` callback | Scoped to the generic "game loop sender"'s world like any other dispatch - not a way to reach a specific other world on demand |
+| A plugin calling `Bukkit.selectEntities(...)` on a player's behalf | Not covered - bypasses the hook entirely (see "Known gap"). This one needs a plugin; it isn't something reachable through chat or commands alone |
+
+All of the above assumes the player already has permission to run the commands in question -
+`execute` and `function` are gamemaster-level by default in vanilla. This agent narrows what
+those commands can reach; it doesn't hand out any permission they didn't already have.
+
 ## Build
 
 ```
@@ -113,6 +158,7 @@ On startup, watch the console for:
 ```
 [WorldScope] registering era adapter: paper-mojmap-1.20.5+
 [WorldScope] patched net.minecraft.commands.Commands
+[WorldScope] patched net.minecraft.commands.CommandSourceStack
 [WorldScope] patched net.minecraft.commands.arguments.selector.EntitySelector
 [WorldScope] installed - selectors without coordinates in commands originating from a command block or the console will now be scoped to their origin world
 ```

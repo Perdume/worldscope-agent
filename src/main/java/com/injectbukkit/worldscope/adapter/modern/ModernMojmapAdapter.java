@@ -18,6 +18,7 @@ public final class ModernMojmapAdapter implements EraAdapter {
 
     private static final String COMMANDS_CLASS = "net.minecraft.commands.Commands";
     private static final String ENTITY_SELECTOR_CLASS = "net.minecraft.commands.arguments.selector.EntitySelector";
+    private static final String COMMAND_SOURCE_STACK_CLASS = "net.minecraft.commands.CommandSourceStack";
 
     @Override
     public String id() {
@@ -42,6 +43,17 @@ public final class ModernMojmapAdapter implements EraAdapter {
                 .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
                         Advice.to(EntitySelectorAdvice.class).on(
                                 ElementMatchers.namedOneOf("findEntities", "findPlayers")
+                                        .and(ElementMatchers.takesArguments(1)))));
+
+        // Confirmed by decompiling a real Paper 26.2 build: this is the single method behind
+        // every "execute in <dimension>" / "execute at|as <target>" redirect, so it's where
+        // non-entity commands (setblock, fill, weather, ...) can be refused too, not just
+        // selector-shaped ones.
+        builder = builder
+                .type(ElementMatchers.named(COMMAND_SOURCE_STACK_CLASS))
+                .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
+                        Advice.to(WithLevelAdvice.class).on(
+                                ElementMatchers.named("withLevel")
                                         .and(ElementMatchers.takesArguments(1)))));
 
         return builder;
