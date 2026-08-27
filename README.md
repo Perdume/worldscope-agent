@@ -1,6 +1,6 @@
 # WorldScope Agent
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Ko-Fi](https://img.shields.io/badge/Ko--fi-Support%20me-72a4f2?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/N8Y025JF6H)
 
 Java agent that bytecode-instruments Paper's command pipeline so that command-block and
 console commands can't reach into worlds they didn't originate from.
