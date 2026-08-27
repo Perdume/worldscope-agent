@@ -19,34 +19,46 @@ command interference this project exists to prevent.
 
 Two hooks, installed via [Byte Buddy](https://bytebuddy.net/) `Advice` at class-load time:
 
-1. **`net.minecraft.commands.Commands#performPrefixedCommand`** - the single funnel every
-   console command and (on Paper) every command-block command passes through. On entry, the
-   dispatching source's world is pushed onto a per-thread stack; popped on exit (including on
-   exception, so the stack never leaks).
-2. **`net.minecraft.commands.Commands#performCommand`** (2- and 3-argument overloads) - the
-   separate entry point a command a *player* types goes through
-   (`ServerGamePacketListenerImpl` routes there, not through `performPrefixedCommand`). The
-   source has to be pulled out of the `ParseResults` argument
-   (`getContext().getSource()`) instead of being handed directly, but otherwise does the same
-   push/pop as step 1.
-3. **`net.minecraft.commands.arguments.selector.EntitySelector#findEntities` /
+1. **`net.minecraft.commands.Commands#executeCommandInContext(CommandSourceStack, Consumer)`** -
+   confirmed by decompiling a real Paper 26.2 build to be the single funnel every top-level
+   command/function dispatch passes through: console and command-block commands
+   (`performPrefixedCommand`) and player-typed ones (`performCommand`) both call it, and so
+   does `ServerFunctionManager#execute` for `#minecraft:tick`/`#minecraft:load` auto-run
+   functions and fired `/schedule function` callbacks. On entry, the dispatching source's
+   world is pushed onto a per-thread stack; popped on exit (including on exception, so the
+   stack never leaks). A nested command/function call within an already-running chain (e.g.
+   `execute ... run function foo`) queues directly onto the already-running execution context
+   instead of calling this again, so it fires once per genuinely independent dispatch, not
+   once per command in a chain - and that queue is drained by a plain synchronous loop with no
+   cross-tick suspension, so a long function chain triggered by a command block/console/player
+   command stays fully inside this one push/pop regardless of length.
+2. **`net.minecraft.commands.arguments.selector.EntitySelector#findEntities` /
    `#findPlayers`** - where a selector actually turns into a list of entities. On exit, any
-   entity not in the world captured in step 1/2 is dropped from the result, regardless of
+   entity not in the world captured in step 1 is dropped from the result, regardless of
    whether the selector itself was position-limited.
 
 The result is scoped by construction - not by rewriting the command text - so it applies
 uniformly to `execute`, `function`, nested command chains, and any Bukkit command that
 ultimately routes through the vanilla dispatcher.
 
+**`#minecraft:tick`/`#minecraft:load` functions and `/schedule` are scoped too, to whatever
+world the generic "game loop sender" resolves to.** These aren't tied to a specific
+command-block/console/player origin the way a directly-run command is - vanilla itself
+discards the world a `/schedule` command was issued from before the callback fires, replacing
+it with that same generic sender - so this is a deliberate choice, not a side effect: a
+`#minecraft:tick` function that's meant to affect every player across every world (a common,
+legitimate pattern) will now only affect players in whichever world the generic sender
+resolves to instead.
+
 **Explicit cross-world reach is refused, not redirected.** If a command has already been
 routed into a different world by the time the selector runs (`execute in <other-world> run
-kill @a`, run by someone whose own world isn't `<other-world>`), step 3 compares the
-selector's *current* world against the *origin* world from step 1/2 and, if they differ,
+kill @a`, run by someone whose own world isn't `<other-world>`), step 2 compares the
+selector's *current* world against the *origin* world from step 1 and, if they differ,
 returns nothing at all - it does not fall back to silently re-scoping the selector to the
 origin world instead. A player in the nether running `execute in world run kill @a` kills
 no one, not the nether's own players either.
 
-No NMS/Paper type is referenced at compile time: everything in step 1/2 above is invoked
+No NMS/Paper type is referenced at compile time: everything in step 1 above is invoked
 through cached reflection (`EntityWorldFilter`), so this module builds without the server
 jar as a dependency. See "Version coverage" below for what that buys you.
 
@@ -74,7 +86,7 @@ safe, not an error.
 ### Known gap
 
 `Bukkit.selectEntities(...)` (used by some plugins) builds its own `CommandSourceStack`
-outside of `performPrefixedCommand` and bypasses the origin-tracking hook, so it isn't
+outside of `executeCommandInContext` and bypasses the origin-tracking hook, so it isn't
 filtered. Extending `ModernMojmapAdapter` to also hook
 `CraftServer#selectEntities`/`VanillaCommandWrapper#getListener` would close this; not done
 yet to keep the initial surface area small.

@@ -22,8 +22,6 @@ public final class EntityWorldFilter {
 
     private static final Map<Class<?>, Method> SOURCE_LEVEL_METHOD = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Method> ENTITY_LEVEL_METHOD = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, Method> PARSE_RESULTS_CONTEXT_METHOD = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, Method> CONTEXT_SOURCE_METHOD = new ConcurrentHashMap<>();
     private static final AtomicBoolean WARNED = new AtomicBoolean(false);
 
     private EntityWorldFilter() {
@@ -40,33 +38,6 @@ public final class EntityWorldFilter {
             return method.invoke(commandSourceStack);
         } catch (Throwable t) {
             warnOnce("could not read the origin world of a dispatching command source", t);
-            return null;
-        }
-    }
-
-    /**
-     * Reflectively reads {@code ParseResults#getContext()#getSource()} - the command source
-     * for a command dispatched via {@code Commands#performCommand(ParseResults, String)},
-     * which is what a player typing a command goes through (as opposed to
-     * {@code performPrefixedCommand(CommandSourceStack, String)}, used for console and
-     * command-block commands, which already gets handed the source directly).
-     */
-    public static Object sourceFromParseResults(Object parseResults) {
-        if (parseResults == null) {
-            return null;
-        }
-        try {
-            Method getContext = PARSE_RESULTS_CONTEXT_METHOD.computeIfAbsent(parseResults.getClass(),
-                    cls -> resolveNoArgMethod(cls, "getContext"));
-            Object context = getContext.invoke(parseResults);
-            if (context == null) {
-                return null;
-            }
-            Method getSource = CONTEXT_SOURCE_METHOD.computeIfAbsent(context.getClass(),
-                    cls -> resolveNoArgMethod(cls, "getSource"));
-            return getSource.invoke(context);
-        } catch (Throwable t) {
-            warnOnce("could not read the command source out of a player command's parse results", t);
             return null;
         }
     }

@@ -26,23 +26,16 @@ public final class ModernMojmapAdapter implements EraAdapter {
 
     @Override
     public AgentBuilder apply(AgentBuilder builder) {
+        // Confirmed by decompiling a real Paper 26.2 build: performPrefixedCommand (console,
+        // command blocks) and performCommand (players) both funnel into this one static method,
+        // and it's also what ServerFunctionManager#execute calls for tick/load auto-run
+        // functions and fired /schedule callbacks - one hook covers all of it.
         builder = builder
                 .type(ElementMatchers.named(COMMANDS_CLASS))
                 .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
-                        Advice.to(CommandDispatchAdvice.class).on(
-                                ElementMatchers.named("performPrefixedCommand")
+                        Advice.to(ExecuteCommandInContextAdvice.class).on(
+                                ElementMatchers.named("executeCommandInContext")
                                         .and(ElementMatchers.takesArguments(2)))));
-
-        // Console/command-block commands go through performPrefixedCommand above; a command a
-        // player types is routed here instead (ServerGamePacketListenerImpl -> performCommand),
-        // with a 3-argument Paper-added overload alongside the vanilla 2-argument one.
-        builder = builder
-                .type(ElementMatchers.named(COMMANDS_CLASS))
-                .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
-                        Advice.to(ParseResultsCommandDispatchAdvice.class).on(
-                                ElementMatchers.named("performCommand")
-                                        .and(ElementMatchers.takesArguments(2)
-                                                .or(ElementMatchers.takesArguments(3))))));
 
         builder = builder
                 .type(ElementMatchers.named(ENTITY_SELECTOR_CLASS))
