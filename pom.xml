@@ -69,6 +69,18 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <filters>
+                                <!-- Byte Buddy's jar carries a second copy of the whole library under
+                                     META-INF/versions/ (multi-release layout). The manifest below does not
+                                     declare Multi-Release, so the JVM never reads those entries - they only
+                                     double the jar size. Dropping them changes nothing at runtime. -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/versions/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <!-- Relocate Byte Buddy so it never collides with a Byte Buddy copy
                                  a plugin (e.g. a mocking library on the plugin's own classpath) might load. -->
                             <relocations>
