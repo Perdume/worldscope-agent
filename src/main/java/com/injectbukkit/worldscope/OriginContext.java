@@ -19,15 +19,23 @@ public final class OriginContext {
 
     private static final ThreadLocal<Deque<Object>> STACK = ThreadLocal.withInitial(ArrayDeque::new);
 
+    /**
+     * Stands in for "no origin" on the stack: {@link ArrayDeque} rejects {@code null}, and a
+     * dispatch whose origin is unknown (or isn't restricted by the config) still has to push
+     * <i>something</i>, so that its pop doesn't remove the enclosing dispatch's origin.
+     */
+    private static final Object NONE = new Object();
+
     private OriginContext() {
     }
 
     /**
      * @param level the origin world for the command dispatch that is starting, or {@code null}
-     *              if it could not be determined (filtering is then skipped for this dispatch).
+     *              if it could not be determined or the config says commands from it are not
+     *              restricted (filtering is then skipped for this dispatch).
      */
     public static void push(Object level) {
-        STACK.get().push(level);
+        STACK.get().push(level != null ? level : NONE);
     }
 
     public static void pop() {
@@ -42,7 +50,7 @@ public final class OriginContext {
      *         or {@code null} if none is tracked (nothing should be filtered in that case).
      */
     public static Object current() {
-        Deque<Object> deque = STACK.get();
-        return deque.isEmpty() ? null : deque.peek();
+        Object top = STACK.get().peek();
+        return top == NONE ? null : top;
     }
 }

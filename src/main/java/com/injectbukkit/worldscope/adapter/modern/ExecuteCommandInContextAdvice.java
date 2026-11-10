@@ -33,7 +33,7 @@ public final class ExecuteCommandInContextAdvice {
     public static void enter(@Advice.Argument(0) Object commandSourceStack) {
         Object originLevel;
         try {
-            originLevel = EntityWorldFilter.levelOfSource(commandSourceStack);
+            originLevel = EntityWorldFilter.scopedOriginOf(commandSourceStack);
         } catch (Throwable ignored) {
             originLevel = null;
         }

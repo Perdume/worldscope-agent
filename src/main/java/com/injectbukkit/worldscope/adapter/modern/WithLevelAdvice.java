@@ -1,5 +1,6 @@
 package com.injectbukkit.worldscope.adapter.modern;
 
+import com.injectbukkit.worldscope.EntityWorldFilter;
 import com.injectbukkit.worldscope.OriginContext;
 import net.bytebuddy.asm.Advice;
 
@@ -32,7 +33,7 @@ public final class WithLevelAdvice {
         boolean crossesIntoAnotherWorld;
         try {
             Object origin = OriginContext.current();
-            crossesIntoAnotherWorld = origin != null && targetLevel != null && targetLevel != origin;
+            crossesIntoAnotherWorld = origin != null && targetLevel != null && !EntityWorldFilter.allowed(targetLevel, origin);
         } catch (Throwable ignored) {
             crossesIntoAnotherWorld = false;
         }

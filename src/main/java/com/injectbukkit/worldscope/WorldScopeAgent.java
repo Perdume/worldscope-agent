@@ -24,6 +24,8 @@ import java.util.jar.JarOutputStream;
  * <ul>
  *   <li>{@code -Dworldscope.enabled=false} - install nothing, agent becomes a no-op.</li>
  *   <li>{@code -Dworldscope.verbose=true} - log every class patched and full stack traces on error.</li>
+ *   <li>{@code -Dworldscope.config=<path>} - config file to read instead of
+ *       {@code worldscope.properties} in the working directory (see {@link WorldConfig}).</li>
  * </ul>
  */
 public final class WorldScopeAgent {
@@ -88,6 +90,11 @@ public final class WorldScopeAgent {
             return;
         }
 
+        // Must stay after the bridge jar is on the bootstrap path: that is what makes WorldPolicy
+        // resolve to the one copy the inlined advice will also call, rather than a second copy
+        // loaded from the app classpath that the advice would never see.
+        WorldPolicy.initialize();
+
         AgentBuilder builder = new AgentBuilder.Default()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 .with(new LoggingListener());
@@ -105,9 +112,11 @@ public final class WorldScopeAgent {
     /**
      * Only {@link Log}, {@link OriginContext} and {@link EntityWorldFilter} are ever called
      * from <i>inside</i> advice bodies that end up inlined into {@code net.minecraft.*}
-     * bytecode, so only those three classes need to be resolvable from whatever classloader
+     * bytecode - plus {@link WorldPolicy} and {@link WorldConfig}, which {@link EntityWorldFilter}
+     * itself calls - so only those five classes need to be resolvable from whatever classloader
      * loaded that bytecode. Everything else in this agent (this class included) stays on the
-     * normal application classloader.
+     * normal application classloader. Every class in this list must be a single {@code .class}
+     * file: a nested class, enum or anonymous class would be a separate file that is missing here.
      *
      * <p>Appending this agent's whole jar to the bootstrap search path instead would make
      * classes like {@link WorldScopeAgent} itself reachable through <em>two</em> classloaders
@@ -122,6 +131,8 @@ public final class WorldScopeAgent {
                 "com/injectbukkit/worldscope/Log.class",
                 "com/injectbukkit/worldscope/OriginContext.class",
                 "com/injectbukkit/worldscope/EntityWorldFilter.class",
+                "com/injectbukkit/worldscope/WorldPolicy.class",
+                "com/injectbukkit/worldscope/WorldConfig.class",
         };
         File bridgeJar = File.createTempFile("worldscope-bridge-", ".jar");
         bridgeJar.deleteOnExit();

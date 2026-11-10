@@ -12,9 +12,9 @@ import java.util.List;
  * {@code EntitySelector#findPlayers(CommandSourceStack)}. Vanilla only restricts a selector to
  * the current dimension when it carries a positional argument (x/y/z/dx/dy/dz/distance); a bare
  * {@code @e} or {@code @a} otherwise searches every loaded world. This advice always narrows the
- * result to the world the command originated from (tracked by {@link CommandDispatchAdvice} /
- * {@link ParseResultsCommandDispatchAdvice}), regardless of whether the selector was itself
- * position-limited.
+ * result to the world the command originated from (tracked by {@link ExecuteCommandInContextAdvice}),
+ * regardless of whether the selector was itself position-limited. Worlds that {@code worldscope.properties}
+ * lets that origin reach (see {@link com.injectbukkit.worldscope.WorldConfig}) count as the origin's own.
  *
  * <p>If the command has already been redirected into a <i>different</i> world by the time the
  * selector runs (e.g. {@code execute in <other-world> run kill @a}, executed by someone whose
@@ -35,7 +35,7 @@ public final class EntitySelectorAdvice {
             Object origin = OriginContext.current();
             if (origin != null) {
                 Object currentLevel = EntityWorldFilter.levelOfSource(source);
-                if (currentLevel != null && currentLevel != origin) {
+                if (currentLevel != null && !EntityWorldFilter.allowed(currentLevel, origin)) {
                     result = Collections.emptyList();
                 } else {
                     result = EntityWorldFilter.filterList(result, origin);

@@ -42,6 +42,13 @@ Three hooks, installed via [Byte Buddy](https://bytebuddy.net/) `Advice`:
    top-level handlers already catch and report whatever a command throws, so this just
    surfaces as an ordinary command failure.
 
+Two more hooks have nothing to do with scoping: `CraftServer#reload` and
+`MinecraftServer#reloadResources` re-read the config file when the server reloads (see
+"Configuration"). Bukkit's reload calls vanilla's from inside itself, so the agent counts the
+nesting and re-reads once, when the outermost reload finishes. Unlike the three hooks above,
+these two names have not been confirmed against a real Paper build; if one doesn't match, that
+reload path just doesn't refresh the config (it is still read at startup).
+
 Step 2 only ever sees commands shaped around a selector (`kill @a`, `tp @s`, and so on).
 Plenty of commands aren't - `setblock`, `fill`, `clone`, `weather`, `time`, `gamerule` - and
 none of those have anything like "return an empty list" to fall back on if you want to refuse
@@ -108,7 +115,7 @@ Things that look like they could go wrong here, and what actually happens:
   agent stops *accidental* cross-world leakage from vanilla's own selector behavior; a
   plugin with server-side code already has full JVM access; it can bypass this agent, or for
   that matter do anything else it wants, with or without WorldScope installed. The bridge
-  classes (`OriginContext`, `EntityWorldFilter`) are on the bootstrap classloader and
+  classes (`OriginContext`, `EntityWorldFilter`, `WorldPolicy`, `WorldConfig`) are on the bootstrap classloader and
   therefore technically callable from any plugin, but there's nothing there a plugin
   couldn't already do more directly through reflection on Minecraft's own internals.
 - **The agent jar itself being tampered with.** A `-javaagent` can rewrite arbitrary server
@@ -136,6 +143,58 @@ All of the above assumes the player already has permission to run the commands i
 `execute` and `function` are gamemaster-level by default in vanilla. This agent narrows what
 those commands can reach; it doesn't hand out any permission they didn't already have.
 
+## Configuration
+
+By default every world is restricted: a command can only affect the world it started in. A
+config file lets you change that per world. It is optional - on first start, if
+`worldscope.properties` doesn't exist in the server's working directory, the agent writes a
+commented one containing only the defaults (which behave exactly like having no file at all).
+Use `-Dworldscope.config=<path>` to read a different file.
+
+The file is read at startup and again whenever the server reloads - Bukkit's `/reload confirm`
+or vanilla's `/minecraft:reload` (also datapack enable/disable, which go through the same
+path). Each reload logs `config reloaded from <path>: ...`. If the file can't be read at that
+moment (locked, bad encoding), the settings already running are kept and an error is logged;
+a deleted file goes back to the defaults, same as at startup.
+
+```
+# Which worlds are restricted, decided by the world a command ORIGINATES in.
+#   all      every world is restricted (default)
+#   include  only commands originating in the listed worlds are restricted; others act like vanilla
+#   exclude  every world is restricted except the listed ones
+mode = exclude
+worlds = lobby, minecraft:the_end
+
+# Extra worlds a restricted command may ALSO reach (selectors and `execute in/at/as`).
+# One-way: this lets world_nether reach world, not the other way round.
+reach.world_nether = world
+# * as the origin means "any world"; * as a target means "every world".
+reach.* = lobby
+```
+
+- **Names.** A world is matched, case-insensitively, by its Bukkit name (`world`,
+  `world_nether`, `world_the_end`, or any custom world) *or* its dimension key
+  (`minecraft:overworld`, `minecraft:the_nether`, ...). Either form works anywhere a world is
+  named, including as the origin in `reach.<origin>`.
+- **Origin.** The origin is the world the command block sits in. Console commands and
+  `#minecraft:tick`/`#minecraft:load`/`/schedule` functions have no world of their own, so they
+  count as the server's default world (normally the overworld) - so `mode = exclude` on that
+  world also lifts the restriction for the console.
+- **`reach` widens the filter, it doesn't turn it off.** With `reach.lobby = spawn`, a bare
+  `@e` in a lobby command block sees entities in `lobby` and `spawn` but nowhere else, and
+  `execute in spawn` works while `execute in world` is still refused.
+- **Syntax mistakes fail strict.** A line that can't be parsed is skipped with a `[warn]` in the
+  log; an unknown `mode` keeps the previous value (`all` by default). A world whose name can't be
+  read from the server is treated as restricted and as unable to reach anything.
+- **A misspelled world name is not caught.** The agent doesn't know which worlds exist, so it
+  can't warn. In `exclude` and `reach` that fails strict (the world stays restricted / gets no
+  reach), but in an `include` list the misspelled world is simply not restricted - so prefer
+  `exclude`, and double-check every name in an `include` list.
+- `mode = include` with no `worlds` restricts nothing and logs a warning saying so.
+
+AI assistants editing this file should read [`AGENT_CONFIG.md`](AGENT_CONFIG.md): the exact
+grammar, a step-by-step procedure with checks, and a symptom table.
+
 ## Build
 
 ```
@@ -160,6 +219,8 @@ On startup, watch the console for:
 [WorldScope] patched net.minecraft.commands.Commands
 [WorldScope] patched net.minecraft.commands.CommandSourceStack
 [WorldScope] patched net.minecraft.commands.arguments.selector.EntitySelector
+[WorldScope] patched org.bukkit.craftbukkit.CraftServer
+[WorldScope] patched net.minecraft.server.MinecraftServer
 [WorldScope] installed - selectors without coordinates in commands originating from a command block or the console will now be scoped to their origin world
 ```
 

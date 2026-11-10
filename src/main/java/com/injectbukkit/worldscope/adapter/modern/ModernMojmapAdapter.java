@@ -19,6 +19,8 @@ public final class ModernMojmapAdapter implements EraAdapter {
     private static final String COMMANDS_CLASS = "net.minecraft.commands.Commands";
     private static final String ENTITY_SELECTOR_CLASS = "net.minecraft.commands.arguments.selector.EntitySelector";
     private static final String COMMAND_SOURCE_STACK_CLASS = "net.minecraft.commands.CommandSourceStack";
+    private static final String CRAFT_SERVER_CLASS = "org.bukkit.craftbukkit.CraftServer";
+    private static final String MINECRAFT_SERVER_CLASS = "net.minecraft.server.MinecraftServer";
 
     @Override
     public String id() {
@@ -55,6 +57,24 @@ public final class ModernMojmapAdapter implements EraAdapter {
                         Advice.to(WithLevelAdvice.class).on(
                                 ElementMatchers.named("withLevel")
                                         .and(ElementMatchers.takesArguments(1)))));
+
+        // Not about command scoping at all: these two make a server reload re-read the config file.
+        // CraftServer#reload is Bukkit's public Server#reload() (stable for many years), and
+        // MinecraftServer#reloadResources is vanilla's datapack reload. Neither has been confirmed
+        // against a real Paper build the way the three hooks above were - if a name is wrong the
+        // hook simply never matches, and the config is then only read at startup.
+        builder = builder
+                .type(ElementMatchers.named(CRAFT_SERVER_CLASS))
+                .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
+                        Advice.to(ReloadAdvice.class).on(
+                                ElementMatchers.named("reload")
+                                        .and(ElementMatchers.takesArguments(0)))));
+
+        builder = builder
+                .type(ElementMatchers.named(MINECRAFT_SERVER_CLASS))
+                .transform((b, typeDescription, classLoader, module, protectionDomain) -> b.visit(
+                        Advice.to(ReloadAdvice.class).on(
+                                ElementMatchers.named("reloadResources"))));
 
         return builder;
     }

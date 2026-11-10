@@ -43,9 +43,31 @@ public final class EntityWorldFilter {
     }
 
     /**
+     * The world to record as a dispatch's origin, or {@code null} when the config says commands
+     * from that world are not restricted ({@code null} makes every later hook skip its work, the
+     * same as when the world couldn't be determined at all).
+     */
+    public static Object scopedOriginOf(Object commandSourceStack) {
+        Object level = levelOfSource(commandSourceStack);
+        if (level == null) {
+            return null;
+        }
+        return WorldPolicy.isScoped(level) ? level : null;
+    }
+
+    /**
+     * Whether a command that originated in {@code originLevel} may touch {@code level}: its own
+     * world always, plus whatever the config's {@code reach.*} rules add.
+     */
+    public static boolean allowed(Object level, Object originLevel) {
+        return level == originLevel || WorldPolicy.mayReach(originLevel, level);
+    }
+
+    /**
      * Returns {@code entities} unchanged unless every element can be proven to belong to
-     * {@code originLevel}, in which case a copy containing only the matching elements is
-     * returned. Never throws; falls back to returning {@code entities} untouched on any error.
+     * a world {@link #allowed allowed} from {@code originLevel}, in which case a copy containing
+     * only the matching elements is returned. Never throws; falls back to returning
+     * {@code entities} untouched on any error.
      */
     public static List<?> filterList(List<?> entities, Object originLevel) {
         if (entities == null || entities.isEmpty() || originLevel == null) {
@@ -54,7 +76,7 @@ public final class EntityWorldFilter {
         try {
             boolean allMatch = true;
             for (Object entity : entities) {
-                if (levelOfEntity(entity) != originLevel) {
+                if (!allowed(levelOfEntity(entity), originLevel)) {
                     allMatch = false;
                     break;
                 }
@@ -64,7 +86,7 @@ public final class EntityWorldFilter {
             }
             List<Object> filtered = new ArrayList<>(entities.size());
             for (Object entity : entities) {
-                if (levelOfEntity(entity) == originLevel) {
+                if (allowed(levelOfEntity(entity), originLevel)) {
                     filtered.add(entity);
                 }
             }
